@@ -490,7 +490,11 @@ impl StreamingMultiheadAttention {
         // time_dim = 1, layout: b,t,h,d
         let qkv = xs.apply(&self.in_proj)?.reshape((b, t, 3, self.num_heads, head_dim))?;
         let original_dtype = qkv.dtype();
-        let qkv = if self.is_quantized() { qkv.to_dtype(matmul_dtype(xs.device()))? } else { qkv };
+        let qkv = if self.is_quantized() || self.use_flash_attn {
+            qkv.to_dtype(matmul_dtype(xs.device()))?
+        } else {
+            qkv
+        };
         let q = qkv.i((.., .., 0))?;
         let k = qkv.i((.., .., 1))?;
         let v = qkv.i((.., .., 2))?;
@@ -523,7 +527,8 @@ impl StreamingMultiheadAttention {
             (k.clone(), v.clone())
         };
 
-        let xs = if q.dtype() == DType::BF16 && self.use_flash_attn {
+        // let xs = if q.dtype() == DType::BF16 && self.use_flash_attn {
+        let xs = if self.use_flash_attn {
             let q = q.transpose(1, 2)?;
             let k = k.transpose(1, 2)?;
             let v = v.transpose(1, 2)?;
