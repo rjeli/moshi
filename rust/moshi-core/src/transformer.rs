@@ -552,6 +552,7 @@ impl StreamingMultiheadAttention {
     }
 
     pub fn reset_kv_cache(&mut self) {
+        self.pos = 0;
         self.kv_cache.reset()
     }
 
