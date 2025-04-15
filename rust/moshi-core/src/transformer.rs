@@ -424,18 +424,18 @@ fn flash_attn(_: &Tensor, _: &Tensor, _: &Tensor, _: f32, _: bool) -> Result<Ten
 #[derive(Debug, Clone)]
 pub struct StreamingMultiheadAttention {
     // Self-attention with KV Cache
-    in_proj: MaybeQuantizedLinear,
-    out_proj: MaybeQuantizedLinear,
-    kv_repeat: usize,
-    num_heads: usize,
-    context: usize,
-    neg_inf: Tensor,
-    rope: Option<Arc<RotaryEmbedding>>,
-    kv_cache: candle_nn::kv_cache::KvCache,
-    use_kv_cache: bool,
-    use_flash_attn: bool,
-    pos: usize,
-    span: tracing::Span,
+    pub in_proj: MaybeQuantizedLinear,
+    pub out_proj: MaybeQuantizedLinear,
+    pub kv_repeat: usize,
+    pub num_heads: usize,
+    pub context: usize,
+    pub neg_inf: Tensor,
+    pub rope: Option<Arc<RotaryEmbedding>>,
+    pub kv_cache: candle_nn::kv_cache::KvCache,
+    pub use_kv_cache: bool,
+    pub use_flash_attn: bool,
+    pub pos: usize,
+    pub span: tracing::Span,
 }
 
 impl StreamingMultiheadAttention {
@@ -523,8 +523,7 @@ impl StreamingMultiheadAttention {
             (k.clone(), v.clone())
         };
 
-        // let xs = if q.dtype() == DType::BF16 && self.use_flash_attn {
-        let xs = if self.use_flash_attn {
+        let xs = if q.dtype() == DType::BF16 && self.use_flash_attn {
             let q = q.transpose(1, 2)?;
             let k = k.transpose(1, 2)?;
             let v = v.transpose(1, 2)?;
@@ -703,15 +702,15 @@ impl Module for Norm {
 
 #[derive(Debug, Clone)]
 pub struct StreamingTransformerLayer {
-    self_attn: StreamingMultiheadAttention,
-    mlp: Mlp,
-    norm1: Norm,
-    norm2: Norm,
-    layer_scale_1: Option<LayerScale>,
-    layer_scale_2: Option<LayerScale>,
-    cross_attn: Option<(Norm, StreamingMultiheadCrossAttention)>,
-    norm_first: bool,
-    span: tracing::Span,
+    pub self_attn: StreamingMultiheadAttention,
+    pub mlp: Mlp,
+    pub norm1: Norm,
+    pub norm2: Norm,
+    pub layer_scale_1: Option<LayerScale>,
+    pub layer_scale_2: Option<LayerScale>,
+    pub cross_attn: Option<(Norm, StreamingMultiheadCrossAttention)>,
+    pub norm_first: bool,
+    pub span: tracing::Span,
 }
 
 impl StreamingTransformerLayer {
@@ -813,11 +812,11 @@ impl StreamingTransformerLayer {
 #[derive(Debug, Clone)]
 pub struct StreamingTransformer {
     // Main transformer
-    layers: Vec<StreamingTransformerLayer>,
-    context: usize,
-    positional_embedding: PositionalEmbedding,
-    max_period: usize,
-    causal: bool,
+    pub layers: Vec<StreamingTransformerLayer>,
+    pub context: usize,
+    pub positional_embedding: PositionalEmbedding,
+    pub max_period: usize,
+    pub causal: bool,
 }
 
 impl StreamingTransformer {
@@ -940,11 +939,11 @@ impl StreamingModule for StreamingTransformer {
 #[derive(Debug, Clone)]
 pub struct ProjectedTransformer {
     // Projected transformer with unquantized projection
-    transformer: StreamingTransformer,
-    input_proj: Option<MaybeQuantizedLinear>,
-    output_projs: Vec<Option<MaybeQuantizedLinear>>,
-    conv_layout: bool,
-    span: tracing::Span,
+    pub transformer: StreamingTransformer,
+    pub input_proj: Option<MaybeQuantizedLinear>,
+    pub output_projs: Vec<Option<MaybeQuantizedLinear>>,
+    pub conv_layout: bool,
+    pub span: tracing::Span,
 }
 
 impl ProjectedTransformer {

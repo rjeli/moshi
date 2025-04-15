@@ -93,14 +93,14 @@ impl Config {
 
 #[derive(Debug, Clone)]
 pub struct Mimi {
-    encoder: seanet::SeaNetEncoder,
-    decoder: seanet::SeaNetDecoder,
-    encoder_transformer: transformer::ProjectedTransformer,
-    decoder_transformer: transformer::ProjectedTransformer,
-    downsample: conv::ConvDownsample1d,
-    upsample: conv::ConvTrUpsample1d,
-    quantizer: quantization::SplitResidualVectorQuantizer,
-    config: Config,
+    pub encoder: seanet::SeaNetEncoder,
+    pub decoder: seanet::SeaNetDecoder,
+    pub encoder_transformer: transformer::ProjectedTransformer,
+    pub decoder_transformer: transformer::ProjectedTransformer,
+    pub downsample: conv::ConvDownsample1d,
+    pub upsample: conv::ConvTrUpsample1d,
+    pub quantizer: quantization::SplitResidualVectorQuantizer,
+    pub config: Config,
 }
 
 impl Mimi {
