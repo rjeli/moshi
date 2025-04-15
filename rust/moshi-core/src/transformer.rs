@@ -40,6 +40,9 @@ pub struct Config {
 
     #[serde(default)]
     pub shared_cross_attn: bool,
+
+    #[serde(default)]
+    pub use_flash_attn: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -464,7 +467,7 @@ impl StreamingMultiheadAttention {
             neg_inf,
             kv_cache: candle_nn::kv_cache::KvCache::new(2, cfg.max_seq_len),
             use_kv_cache: true,
-            use_flash_attn: false,
+            use_flash_attn: cfg.use_flash_attn,
             pos: 0,
             span: tracing::span!(tracing::Level::TRACE, "mha"),
         })

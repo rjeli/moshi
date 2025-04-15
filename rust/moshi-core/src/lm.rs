@@ -62,6 +62,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         DepFormerConfig { num_slices, transformer: depformer_cfg, low_rank_embeddings: None }
     }
@@ -94,6 +95,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -134,6 +136,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: true,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -205,6 +208,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -243,6 +247,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -290,6 +295,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -326,6 +332,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -367,6 +374,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,
@@ -404,6 +412,7 @@ impl Config {
             kv_repeat: 1,
             max_seq_len: 4096,
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Self {
             transformer: lm_cfg,

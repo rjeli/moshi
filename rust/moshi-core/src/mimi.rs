@@ -74,6 +74,7 @@ impl Config {
             conv_layout: true, // see builders.py
             max_seq_len: 8192, // the transformer works at 25hz so this is ~5 mins.
             shared_cross_attn: false,
+            use_flash_attn: false,
         };
         Config {
             channels: 1,
