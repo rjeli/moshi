@@ -390,6 +390,72 @@ impl RotaryEmbedding {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RotaryEmbeddingComputed {
+    // sin: Tensor,
+    // cos: Tensor,
+    dim: usize,
+    theta: f32,
+    inv_freq: Tensor,
+    span: tracing::Span,
+}
+
+impl RotaryEmbeddingComputed {
+    pub fn new(dim: usize, theta: f32, dev: &Device) -> Result<Self> {
+        let inv_freq: Vec<_> =
+            (0..dim).step_by(2).map(|i| 1f32 / theta.powf(i as f32 / dim as f32)).collect();
+        let inv_freq_len = inv_freq.len();
+        let inv_freq = Tensor::from_vec(inv_freq, (1, inv_freq_len), dev)?;
+
+        Ok(Self { dim, theta, inv_freq, span: tracing::span!(tracing::Level::TRACE, "rot") })
+
+        /*
+        let inv_freq: Vec<_> =
+            (0..dim).step_by(2).map(|i| 1f32 / theta.powf(i as f32 / dim as f32)).collect();
+        let inv_freq_len = inv_freq.len();
+        let inv_freq = Tensor::from_vec(inv_freq, (1, inv_freq_len), dev)?;
+        let t = Tensor::arange(0u32, max_seq_len as u32, dev)?
+            .to_dtype(DType::F32)?
+            .reshape((max_seq_len, 1))?;
+        let freqs = t.matmul(&inv_freq)?;
+        Ok(Self {
+            sin: freqs.sin()?,
+            cos: freqs.cos()?,
+            span: tracing::span!(tracing::Level::TRACE, "rot"),
+        })
+        */
+    }
+
+    pub fn apply_rotary_emb(&self, qk: &Tensor, pos: usize) -> Result<Tensor> {
+        let _enter = self.span.enter();
+        let (_b_size, _nheads, seqlen, _headdim) = qk.dims4()?;
+        let dev = qk.device();
+
+        let end_pos = pos + seqlen;
+        let t = Tensor::arange(pos as u32, end_pos as u32, dev)?
+            .to_dtype(DType::F32)?
+            .reshape((seqlen, 1))?;
+
+        let freqs = t.matmul(&self.inv_freq)?;
+        let sin = freqs.sin()?;
+        let cos = freqs.cos()?;
+
+        let qk_dtype = qk.dtype();
+        let rotated = candle_nn::rotary_emb::rope_i(&qk.to_dtype(DType::F32)?, &cos, &sin)?
+            .to_dtype(qk_dtype)?;
+
+        Ok(rotated)
+
+        // todo!()
+        /*
+        let qk_dtype = qk.dtype();
+        let c = self.cos.narrow(0, seqlen_offset, seqlen)?;
+        let s = self.sin.narrow(0, seqlen_offset, seqlen)?;
+        candle_nn::rotary_emb::rope_i(&qk.to_dtype(DType::F32)?, &c, &s)?.to_dtype(qk_dtype)
+        */
+    }
+}
+
 pub(crate) fn get_causal_mask(
     size1: usize,
     size2: usize,
@@ -430,17 +496,17 @@ pub struct StreamingMultiheadAttention {
     pub num_heads: usize,
     pub context: usize,
     pub neg_inf: Tensor,
-    pub rope: Option<Arc<RotaryEmbedding>>,
-    pub kv_cache: candle_nn::kv_cache::KvCache,
-    pub use_kv_cache: bool,
+    pub rope: Option<Arc<RotaryEmbeddingComputed>>,
+    // pub kv_cache: candle_nn::kv_cache::KvCache,
+    pub kv_cache: candle_nn::kv_cache::RotatingKvCache,
     pub use_flash_attn: bool,
-    pub pos: usize,
+    // pub pos: usize,
     pub span: tracing::Span,
 }
 
 impl StreamingMultiheadAttention {
     pub fn new(
-        rope: &Option<Arc<RotaryEmbedding>>,
+        rope: &Option<Arc<RotaryEmbeddingComputed>>,
         cfg: &Config,
         vb: MaybeQuantizedVarBuilder,
     ) -> Result<Self> {
@@ -465,10 +531,10 @@ impl StreamingMultiheadAttention {
             num_heads: cfg.num_heads,
             context: cfg.context,
             neg_inf,
-            kv_cache: candle_nn::kv_cache::KvCache::new(2, cfg.max_seq_len),
-            use_kv_cache: true,
+            // kv_cache: candle_nn::kv_cache::KvCache::new(2, cfg.max_seq_len),
+            kv_cache: candle_nn::kv_cache::RotatingKvCache::new(2, cfg.context),
             use_flash_attn: cfg.use_flash_attn,
-            pos: 0,
+            // pos: 0,
             span: tracing::span!(tracing::Level::TRACE, "mha"),
         })
     }
@@ -503,20 +569,20 @@ impl StreamingMultiheadAttention {
         let mut q = q.transpose(1, 2)?.contiguous()?; // b,h,t,d
         let mut k = k.transpose(1, 2)?.contiguous()?; // b,h,k,d
         let v = v.transpose(1, 2)?.contiguous()?; // b,h,k,d
+
         if let Some(rope) = &self.rope {
-            q = rope.apply_rotary_emb(&q, self.pos)?;
-            k = rope.apply_rotary_emb(&k, self.pos)?;
+            let pos = self.kv_cache.current_seq_len();
+            q = rope.apply_rotary_emb(&q, pos)?;
+            k = rope.apply_rotary_emb(&k, pos)?;
         }
 
-        let (k, v) = if self.use_kv_cache {
-            self.pos += k.dim(2)?;
-            self.kv_cache.append(&k.contiguous()?, &v.contiguous()?)?
-        } else {
-            (k, v)
-        };
+        // self.pos += k.dim(2)?;
+        let (k, v) = { self.kv_cache.append(&k.contiguous()?, &v.contiguous()?)? };
+
         // The KV cache keeps all the data at the moment, we want to trim
         // down the part that comes from the cache to at most context to
         // be coherent with the mask shape we provide.
+        /*
         let k_len = k.dim(2)?;
         let k_target_len = t + usize::min(self.context, k_len - t);
         let (k, v) = if k_target_len < k_len {
@@ -526,8 +592,8 @@ impl StreamingMultiheadAttention {
         } else {
             (k.clone(), v.clone())
         };
+        */
 
-        // let xs = if q.dtype() == DType::BF16 && self.use_flash_attn {
         let xs = if self.use_flash_attn {
             let q = q.transpose(1, 2)?;
             let k = k.transpose(1, 2)?;
@@ -560,12 +626,12 @@ impl StreamingMultiheadAttention {
     }
 
     pub fn reset_kv_cache(&mut self) {
-        self.pos = 0;
+        // self.pos = 0;
         self.kv_cache.reset()
     }
 
-    pub fn set_kv_cache(&mut self, kv_cache: candle_nn::kv_cache::KvCache) {
-        self.kv_cache = kv_cache
+    pub fn set_kv_cache(&mut self, kv_cache: candle_nn::kv_cache::RotatingKvCache) {
+        // self.kv_cache = kv_cache
     }
 }
 
@@ -720,7 +786,7 @@ pub struct StreamingTransformerLayer {
 
 impl StreamingTransformerLayer {
     pub fn new(
-        rope: &Option<Arc<RotaryEmbedding>>,
+        rope: &Option<Arc<RotaryEmbeddingComputed>>,
         cfg: &Config,
         vb: MaybeQuantizedVarBuilder,
         shared_ca_vb: Option<MaybeQuantizedVarBuilder>,
@@ -809,8 +875,8 @@ impl StreamingTransformerLayer {
         self.self_attn.reset_kv_cache();
     }
 
-    pub fn set_kv_cache(&mut self, kv_cache: candle_nn::kv_cache::KvCache) {
-        self.self_attn.set_kv_cache(kv_cache);
+    pub fn set_kv_cache(&mut self, kv_cache: candle_nn::kv_cache::RotatingKvCache) {
+        // self.self_attn.set_kv_cache(kv_cache);
     }
 }
 
@@ -828,10 +894,20 @@ impl StreamingTransformer {
     pub fn new(cfg: &Config, vb: MaybeQuantizedVarBuilder) -> Result<Self> {
         let vb_l = vb.pp("layers");
         let rope = match cfg.positional_embedding {
+            /*
             PositionalEmbedding::Rope => {
                 let rope = RotaryEmbedding::new(
                     cfg.d_model / cfg.num_heads,
                     cfg.max_seq_len,
+                    cfg.max_period as f32,
+                    vb.device(),
+                )?;
+                Some(Arc::new(rope))
+            }
+            */
+            PositionalEmbedding::Rope => {
+                let rope = RotaryEmbeddingComputed::new(
+                    cfg.d_model / cfg.num_heads,
                     cfg.max_period as f32,
                     vb.device(),
                 )?;
@@ -1023,5 +1099,43 @@ impl StreamingModule for ProjectedTransformer {
                 Ok(y.clone())
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inf_rope() -> Result<()> {
+        /*
+        let rope = RotaryEmbedding::new(
+            cfg.d_model / cfg.num_heads,        // 512 / 8 = 64
+            cfg.max_seq_len,                    // max_seq_len = 8192
+            cfg.max_period as f32,              // 10000
+            vb.device(),
+        )?;
+        */
+
+        let dim = 64;
+        let max_seq_len = 1024;
+        let theta = 10_000 as f32;
+        let dev = candle::Device::Cpu;
+
+        let old = RotaryEmbedding::new(dim, max_seq_len, theta, &dev)?;
+        let new = RotaryEmbeddingComputed::new(dim, theta, &dev)?;
+
+        // let (_b_size, _nheads, seqlen, _headdim) = qk.dims4()?;
+        let shape = (2, 8, 8, dim);
+        let x = candle::Tensor::randn(0.0f32, 1.0f32, shape, &dev)?;
+
+        let old_y = old.apply_rotary_emb(&x, 0)?;
+        let new_y = new.apply_rotary_emb(&x, 0)?;
+
+        let old_y_cpu = old_y.flatten_all()?.to_vec1::<f32>()?;
+        let new_y_cpu = new_y.flatten_all()?.to_vec1::<f32>()?;
+        assert_eq!(old_y_cpu, new_y_cpu);
+
+        Ok(())
     }
 }
